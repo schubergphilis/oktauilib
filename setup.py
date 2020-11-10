@@ -31,7 +31,7 @@ setup(
     description='''Library to interact with Okta via UI''',
     long_description=readme + '\n\n' + history,
     author='''Costas Tyfoxylos''',
-    author_email='''costas.tyf@gmail.com''',
+    author_email='''ctyfoxylos@schubergphilis.com''',
     url='''https://github.com/schubergphilis/oktauilib''',
     packages=find_packages(where='.', exclude=('tests', 'hooks', '_CI*')),
     package_dir={'''oktauilib''':

@@ -35,13 +35,13 @@ from ._version import __version__
 from .oktauilib import (OktaUI,
                         ActiveDirectory)
 
-__author__ = '''Costas Tyfoxylos <costas.tyf@gmail.com>'''
+__author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
 __docformat__ = '''google'''
 __date__ = '''10-11-2020'''
 __copyright__ = '''Copyright 2020, Costas Tyfoxylos'''
 __license__ = '''MIT'''
 __maintainer__ = '''Costas Tyfoxylos'''
-__email__ = '''<costas.tyf@gmail.com>'''
+__email__ = '''<ctyfoxylos@schubergphilis.com>'''
 __status__ = '''Development'''  # "Prototype", "Development", "Production".
 
 # This is to 'use' the module(s), so lint doesn't complain

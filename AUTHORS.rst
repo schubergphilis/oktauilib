@@ -5,7 +5,7 @@ Credits
 Development Lead
 ----------------
 
-* Costas Tyfoxylos <costas.tyf@gmail.com>
+* Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>
 
 Contributors
 ------------
