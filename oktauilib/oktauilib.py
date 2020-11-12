@@ -59,9 +59,9 @@ AWS_APPLICATION_URL_COMPONENT = 'admin/app/amazon_aws/instance/'
 
 @dataclass
 class OktaUserType:
-    """Models an Okta User type"""
+    """Models an Okta User type."""
 
-    id: str
+    id: str  # pylint: disable=invalid-name
     display_name: str
     name: str
     description: str
@@ -77,7 +77,9 @@ class OktaUserType:
         self.is_default = data.get('isDefault')
 
 
-class OktaUser:
+class OktaUser:  # pylint: disable=too-few-public-methods
+    """Models an Okta user based on input data."""
+
     def __new__(cls, data):
         if data.get('profile'):
             return OktaUserActivate(data)
@@ -86,8 +88,9 @@ class OktaUser:
 
 @dataclass
 class OktaUserSearch:
-    """Models an Okta User from search request"""
-    id: str
+    """Models an Okta User from search request."""
+
+    id: str  # pylint: disable=invalid-name
     first_name: str
     last_name: str
     login: str
@@ -107,8 +110,9 @@ class OktaUserSearch:
 
 @dataclass
 class OktaUserActivate:
-    """Models an Okta User from activate request"""
-    id: str
+    """Models an Okta User from activate request."""
+
+    id: str  # pylint: disable=invalid-name
     first_name: str
     last_name: str
     login: str
@@ -128,7 +132,8 @@ class OktaUserActivate:
 
 @dataclass
 class UsersDataStructure:
-    """Models an Active Directory User Search Result Data"""
+    """Models an Active Directory User Search Result Data."""
+
     user_id: str
     unknown1: bool
     unknown2: str
@@ -140,7 +145,11 @@ class UsersDataStructure:
 
 @dataclass
 class ADUserAssignment:
-    """Models an Active Directory User Assignment"""
+    """Models an Active Directory User Assignment."""
+
+    # pylint: disable=too-many-instance-attributes
+    # Eight is reasonable in this case.
+
     action: str
     match_type: str
     user_id: str
@@ -163,8 +172,9 @@ class ADUserAssignment:
 
 @dataclass
 class ADUser:
-    """Models Active Directory User"""
-    id: str
+    """Models Active Directory User."""
+
+    id: str  # pylint: disable=invalid-name
     first_name: str
     last_name: str
     user_name: str
@@ -202,8 +212,8 @@ class OktaUI:
         return '.'.join([client + '-admin', server, suffix])
 
     @staticmethod
-    def _authenticate_session(username, password, host):
-        authentication = CredentialAuthenticator(username, password, host)
+    def _authenticate_session(host, username, password):
+        authentication = CredentialAuthenticator(host, username, password)
         return authentication.session
 
     @staticmethod
@@ -233,6 +243,7 @@ class OktaUI:
 
     @property
     def directories(self):
+        """Return list of directories."""
         url = f'https://{self._admin_host}/admin/people/directories'
         response = self.session.get(url)
         if not response.ok:
@@ -244,14 +255,17 @@ class OktaUI:
 
     @property
     def _request_headers(self):
+        """Return needed request headers."""
         return {'X-Okta-XsrfToken': self._get_xsrf_token(),
                 'X-Requested-With': 'XMLHttpRequest'}
 
     def get_directory_by_name(self, name):
+        """Return directory matched by name."""
         return next((directory for directory in self.directories if directory.name == name), None)
 
     @staticmethod
-    def _parse_response(text):
+    def parse_response(text):
+        """Returns JSON part of mixed response."""
         return json.loads(text.split(';')[1])
 
     def get_aws_provisioning_data(self, application_id):
@@ -339,6 +353,7 @@ class OktaUI:
         return response.ok
 
     def _get_working_set_id(self, group_id):
+        """Returns workingSetId from workingSetApps endpoint."""
         xsrf = self._get_group_xsrf_token(group_id)
         url = 'https://{admin_host}/admin/group/{group_id}/workingSetApps'.format(admin_host=self._admin_host,
                                                                                   group_id=group_id)
@@ -398,6 +413,7 @@ class OktaUI:
         return response.ok
 
     def user_exists(self, login):
+        """Checks if user exists."""
         url = f'https://{self._admin_host}/api/internal/people?search={login}'
         response = self.session.get(url)
         if not response.ok:
@@ -409,6 +425,7 @@ class OktaUI:
             False)
 
     def user_types(self):
+        """List of user types."""
         url = f'https://{self._admin_host}/api/v1/user/types'
         response = self.session.get(url)
         if not response.ok:
@@ -418,6 +435,12 @@ class OktaUI:
             yield OktaUserType(user_type)
 
     def get_user_by_login(self, login):
+        """Return User object by login.
+
+        Args:
+            login: User login
+
+        """
         url = f'https://{self._admin_host}/api/internal/people?search={login}'
         response = self.session.get(url)
         if not response.ok:
@@ -427,78 +450,106 @@ class OktaUI:
             (OktaUser(user) for user in response.json().get('personList') if user.get('login') == login),
             None)
 
-    def create_user(self, login, service_password,
+    def create_user(self, login, password,
                     first_name='TempFirstName', last_name='TempLastName', user_type: OktaUserType = None):
-        # check user exists in Okta
+        # pylint: disable=too-many-arguments
+        """Returns OktaUser.
+
+        Args:
+            login: users login (email)
+            password: password
+            first_name: users first name
+            last_name: users last name
+            user_type: Okta user type
+
+        Returns: Okta user
+
+        """
         if self.user_exists(login):
-            self._logger.error(f'Can\'t continue, user {login} already exists')
+            self._logger.error('Can\'t continue, user %s already exists', login)
             return None
         # get default user type if not provided
         if not user_type or not isinstance(user_type, OktaUserType):
-            user_type = next((
-                user_type for user_type in self.user_types() if user_type.is_default),
-                None)
+            user_type = next((user_type for user_type in self.user_types() if user_type.is_default),
+                             None)
             if not user_type:
                 self._logger.error('Default user type not found!')
                 return None
         # create user
-        temp_user = {'type': {
-            'id': user_type.id},
-            'profile': {'login': login,
-                        'email': login,
-                        'firstName': first_name,
-                        'lastName': last_name},
-            'credentials': {'password': {
-                'value': service_password}}}
+        temp_user = {'type': {'id': user_type.id},
+                     'profile': {'login': login,
+                                 'email': login,
+                                 'firstName': first_name,
+                                 'lastName': last_name},
+                     'credentials': {'password': {'value': password}}}
         url = f'https://{self._admin_host}/api/v1/users?activate=true'
         response = self.session.post(url, json=temp_user, headers=self._request_headers)
         if not response.ok:
-            self._logger.error(f'User {login} not created')
+            self._logger.error('User %s not created', login)
             self._logger.error(response.text)
             return None
-        self._logger.info('User created with id: %s' % response.json().get('id'))
+        self._logger.info('User created with id: %s', response.json().get('id'))
         return OktaUser(response.json())
 
     def deactivate_user(self, login):
+        """
+        Deactivates user in Okta.
+
+        Args:
+            login: users login (email)
+
+        Returns: True if deactivation succeeded, otherwise False.
+
+        """
         data = {'sendEmail': 'false'}
         user = self.get_user_by_login(login)
         if not user:
-            self._logger.error(f'User {login} not found!')
+            self._logger.error('User %s not found!', login)
             return False
         if user.status_code == 'INACTIVE':
-            self._logger.info(f'User {login} already deactivated, skipping!')
+            self._logger.info('User %s already deactivated, skipping!', login)
             return True
         url = f'https://{self._admin_host}/admin/user/deactivate/{user.id}'
         response = self.session.post(url, data=data, headers=self._request_headers)
         if not response.ok:
             self._logger.error(response.text)
             return False
-        self._logger.info(f'User {user.login} deactivated!')
+        self._logger.info('User %s deactivated!', user.login)
         return True
 
     def delete_user(self, login):
+        """
+        Deletes user.
+
+        Args:
+            login: users login (email)
+
+        Returns: True/False
+
+        """
         user = self.get_user_by_login(login)
         if not user:
-            self._logger.error(f'User {login} not found!')
+            self._logger.error('User %s not found!', login)
             return False
         if user.status_code != 'INACTIVE':
-            self._logger.error(f'User {login} not deactivated, aborting delete')
+            self._logger.error('User %s not deactivated, aborting delete', login)
             return False
         url = f'https://{self._admin_host}/api/v1/users/{user.id}'
         response = self.session.delete(url, headers=self._request_headers)
         if not response.ok:
-            self._logger.error(f'Can\'t delete user {login}')
+            self._logger.error('Can\'t delete user %s', login)
             self._logger.error(response.text)
             return False
-        self._logger.info(f'User {user.login} deleted')
+        self._logger.info('User %s deleted', user.login)
         return True
 
 
 class ActiveDirectory:
+    """Active directory object from Okta UI."""
 
     def __init__(self, okta_instance, html_data, xsrf_token):
         self.okta = okta_instance
-        self.id, self.name = self._parse(html_data)
+        self.id, self.name = self._parse(html_data)  # pylint: disable=invalid-name
         self.xsrf_token = xsrf_token
 
     @staticmethod
@@ -546,130 +597,198 @@ class ActiveDirectory:
 
     @staticmethod
     def _parse(html_data):
+        """Parses HTML data response."""
         _, _, id_ = html_data.attrs.get('id').partition('-')
         name = html_data.text.strip()
         return id_, name
 
     def is_user_unassigned(self, login_name):
+        """Checks if user is unassigned."""
         return bool(self.get_unassigned_user_by_username(login_name))
 
-    def get_unassigned_user_by_username(self, user_name):
+    def get_unassigned_user_by_username(self, login_name):
+        """
+        Gets unassigned user by username.
+
+        Args:
+            login_name: login (email)
+
+        Returns: ADUser model.
+
+        """
+        # pylint: disable=protected-access
         url = f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/users/unassigned'
-        params = self._users_query_params(user_name)
+        params = self._users_query_params(login_name)
+        # pylint: disable=protected-access
         response = self.okta.session.get(url, params=params, headers=self.okta._request_headers)
         if not response.ok:
-            self.okta._logger.error(response.text)
+            self.okta._logger.error(response.text)  # pylint: disable=protected-access
             return None
-        data = [UsersDataStructure(*data) for data in self.okta._parse_response(response.text).get('aaData')]
-        return next((ADUser(user) for user in data if ADUser(user).user_name == user_name), None)
+
+        data = [UsersDataStructure(*data) for data in self.okta.parse_response(response.text).get('aaData')]
+        return next((ADUser(user) for user in data if ADUser(user).user_name == login_name), None)
 
     def import_users(self, partial=True):
+        """
+        Imports users from AD to Okta.
+
+        Args:
+            partial: Bool if it should use partial import
+
+        Returns: ImportJob object
+
+        """
+        # pylint: disable=protected-access
         url = f'https://{self.okta._admin_host}/admin/user/import/active_directory/{self.id}/start'
         data = {'_xsrfToken': self.xsrf_token,
                 'fullImport': 'false' if partial else 'true'}
+        # pylint: disable=protected-access
         response = self.okta.session.post(url, data=data, headers=self.okta._request_headers)
         if not response.ok:
-            self.okta._logger.error(response.text)
+            self.okta._logger.error(response.text)  # pylint: disable=protected-access
             return None
-        return ImportJob(self.okta, self.okta._parse_response(response.text))
+        return ImportJob(self.okta, self.okta.parse_response(response.text))
 
     def set_current_user_assignment(self, ad_user: ADUser, assignment_action):
+        """
+        Sets current user assignment to provided assignment action.
+
+        Args:
+            ad_user: Active Directory user object
+            assignment_action: Action to be set
+
+        Returns: Bool
+
+        """
         data = {'_xsrfToken': self.xsrf_token,
                 'action': assignment_action,
                 'assignedId': '',
                 'manualAssignUser': False}
+        # pylint: disable=protected-access
         url = f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/users/{ad_user.id}/action'
+        # pylint: disable=protected-access
         response = self.okta.session.post(url, data=data, headers=self.okta._request_headers)
         if not response.ok:
+            # pylint: disable=protected-access
             self.okta._logger.error(f'Can\'t set {assignment_action} assignment for {ad_user.user_name}')
-            self.okta._logger.error(response.text)
+            self.okta._logger.error(response.text)  # pylint: disable=protected-access
             return False
         return True
 
     def confirm_user_assignment(self, ad_user: ADUser, enable_auto_activation=True):
+        """
+        Confirms user assignment.
+
+        Args:
+            ad_user: Active Directory user object
+            enable_auto_activation: Enable auto activation
+
+        Returns: Bool if confirmation succeeds
+
+        """
         data = {'_xsrfToken': self.xsrf_token,
                 'confirmIds': ad_user.id,
                 'enableAutoactivation': enable_auto_activation}
+        # pylint: disable=protected-access
         url = f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/users/confirm'
+        # pylint: disable=protected-access
         response = self.okta.session.post(url, data=data, headers=self.okta._request_headers)
         if not response.ok:
-            self.okta._logger.error(response.text)
+            self.okta._logger.error(response.text)  # pylint: disable=protected-access
             return False
         return True
 
     def create_okta_user_for_ad_user(self, ad_user: ADUser):
-        if not next(
-                    (assignment.current for assignment in ad_user.assignments if assignment.action == 'CREATE'),
+        """Creates new Okta user for AD user assignment.
+
+        Args:
+            ad_user: Object of ADUser
+
+        Returns: assignment
+
+        """
+        if not next((assignment.current for assignment in ad_user.assignments if assignment.action == 'CREATE'),
                     False):
             if not self.set_current_user_assignment(ad_user, 'CREATE'):
+                # pylint: disable=protected-access
                 self.okta._logger.error(f'User assignment for {ad_user.user_name} not set!')
                 return False
         return self.confirm_user_assignment(ad_user)
 
     @property
     def _counters(self):
+        """Returns counters from users/counts endpoint."""
+        # pylint: disable=protected-access
         url = f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/users/counts'
-        response = self.okta.session.get(url, headers=self.okta._request_headers)
+        response = self.okta.session.get(url, headers=self.okta._request_headers)  # pylint: disable=protected-access
         if not response.ok:
-            self.okta._logger.error(response.text)
+            self.okta._logger.error(response.text)  # pylint: disable=protected-access
             return {}
-        return self.okta._parse_response(response.text)
+        return self.okta.parse_response(response.text)
 
     @property
     def unassigned_count(self):
+        """Returns unassigned count."""
         return self._counters.get('unassignedCount')
 
     @property
     def assigned_count(self):
+        """Returns assigned count."""
         return self._counters.get('assignedCount')
 
 
 class ImportJob:
+    """Models Import Job object."""
 
     def __init__(self, okta_instance, data):
         self.okta = okta_instance
-        self.id = data.get('modelMap', {}).get('jobId')
+        self.id = data.get('modelMap', {}).get('jobId')  # pylint: disable=invalid-name
         self._data = None
         self._update()
         print(self._data.get('status'))
         self._is_running = True
 
     def _update(self):
-        url = f'https://{self.okta._admin_host}/joblist/status'
+        url = f'https://{self.okta._admin_host}/joblist/status'  # pylint: disable=protected-access
         params = {'jobs': self.id}
         response = self.okta.session.get(url, params=params)
         if response.ok:
-            self._data = self.okta._parse_response(response.text).get('jobList').get('jobList')[0]
+            self._data = self.okta.parse_response(response.text).get('jobList').get('jobList')[0]
             self._is_running = self._data.get('status') in ['IN_PROGRESS', 'CREATED']
         else:
-            self.okta._logger.error(response.text)
+            self.okta._logger.error(response.text)  # pylint: disable=protected-access
 
     @property
     def is_running(self):
+        """Return running state."""
         if self._is_running:
             self._update()
         return self._is_running
 
     @property
     def message(self):
+        """Returns localized message."""
         if self._is_running:
             self._update()
         return self._data.get('localizedMessage')
 
     @property
     def status(self):
+        """Return current status."""
         if self._is_running:
             self._update()
         return self._data.get('status')
 
     @property
     def status_text(self):
+        """Returns current status info text."""
         if self._is_running:
             self._update()
         return self._data.get('statusText')
 
     @property
     def percentage_done(self):
+        """Returns percentage done."""
         if self._is_running:
             self._update()
         return self._data.get('currentStep')

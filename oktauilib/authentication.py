@@ -36,8 +36,8 @@ import logging
 
 from copy import copy
 from time import sleep
-from requests import (Session,
-                      ConnectionError)
+from requests import Session
+from requests import ConnectionError  # pylint: disable=redefined-builtin
 from oktauilib.oktauilibexceptions import (ResponseError,
                                            InvalidCredentials,
                                            PushRejected,
@@ -57,8 +57,8 @@ __status__ = '''Development'''  # "Prototype", "Development", "Production".
 REQUEST_TIMEOUT = 10
 
 
-class CredentialAuthenticator:
-    """Models the authenticator with a provided credentials"""
+class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
+    """Models the authenticator with a provided credentials."""
 
     def __init__(self, host, username, password):
         self._logger = logging.getLogger(__name__)
@@ -135,7 +135,7 @@ class CredentialAuthenticator:
         return session
 
     def _handle_redirect(self, session, url, headers, params=None):
-        self._logger.debug(f'Fetching redirect url: {url}')
+        self._logger.debug('Fetching redirect url: %s', url)
         response = session.get(url, headers=headers, params=params, allow_redirects=False)
         if not response.ok:
             self._logger.error(response.text)

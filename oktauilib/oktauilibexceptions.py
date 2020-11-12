@@ -40,6 +40,7 @@ __maintainer__ = '''Costas Tyfoxylos'''
 __email__ = '''<ctyfoxylos@schubergphilis.com>'''
 __status__ = '''Development'''  # "Prototype", "Development", "Production".
 
+
 class ResponseError(Exception):
     """An unknown error occurred and the response received was not expected."""
 
@@ -49,24 +50,24 @@ class AuthenticationExpired(Exception):
 
 
 class OktaUserType(Exception):
-    """The default Okta User Type is missing"""
+    """The default Okta User Type is missing."""
 
 
 class InvalidCredentials(Exception):
-    """InvalidCredentials"""
+    """InvalidCredentials."""
 
 
 class PushNotConfigured(Exception):
-    """Okta push not configured"""
+    """Okta push not configured."""
 
 
 class PushTimeout(Exception):
-    """Push timeout"""
+    """Push timeout."""
 
 
 class PushRejected(Exception):
-    """Okta push rejected"""
+    """Okta push rejected."""
 
 
 class PasswordExpired(Exception):
-    """Password Expired"""
+    """Password Expired."""
