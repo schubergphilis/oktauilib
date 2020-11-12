@@ -54,6 +54,7 @@ __status__ = '''Development'''  # "Prototype", "Development", "Production".
 LOGGER_BASENAME = '''oktauilib'''
 LOGGER = logging.getLogger(LOGGER_BASENAME)
 LOGGER.addHandler(logging.NullHandler())
+AWS_APPLICATION_URL_COMPONENT = 'admin/app/amazon_aws/instance/'
 
 
 @dataclass
@@ -193,6 +194,7 @@ class OktaUI:
         self._admin_host = self._get_admin_host(host)
         self._base_url = f'https://{host}'
         self.session = self._authenticate_session(self._host, username, password)
+        self._admin_aws_application_url = f'https://{self._admin_host}/{AWS_APPLICATION_URL_COMPONENT}'
 
     @staticmethod
     def _get_admin_host(host):
@@ -220,6 +222,15 @@ class OktaUI:
             return self._parse_xsrf_token(response)
         raise ResponseError(response.text)
 
+    def _get_group_xsrf_token(self, group_id):
+        group_headers = {'Host': self._admin_host,
+                         'Referer': 'https://{admin_host}/admin/groups'.format(admin_host=self._admin_host),
+                         'User-Agent': self._user_agent}
+        group_url = 'https://{admin_host}/admin/group/{group_id}'.format(admin_host=self._admin_host,
+                                                                         group_id=group_id)
+        group_response = self.session.get(group_url, headers=group_headers)
+        return self._parse_xsrf_token(group_response)
+
     @property
     def directories(self):
         url = f'https://{self._admin_host}/admin/people/directories'
@@ -242,6 +253,149 @@ class OktaUI:
     @staticmethod
     def _parse_response(text):
         return json.loads(text.split(';')[1])
+
+    def get_aws_provisioning_data(self, application_id):
+        """Gets the provisioning data for okta aws application.
+
+        Args:
+            application_id: Okta application id
+
+        Returns:
+            account_ids: Account ids associated with the application
+            xsrfToken: xsrf token associated with the application
+
+        """
+        url = f'{self._admin_aws_application_url}/{application_id}/settings/user-mgmt'
+        response = self.session.get(url)
+        soup = Bfs(response.text, 'html.parser')
+        user_mgmt_account_ids = soup.find('input', {'id': 'userMgmtSettings.accountsIds'})
+        account_ids = user_mgmt_account_ids.get('value', '') if user_mgmt_account_ids else ''
+        user_mgmt_xsrftoken = soup.find('input', {'name': '_xsrfToken'})
+        xsrftoken = user_mgmt_xsrftoken.get('value', '') if user_mgmt_xsrftoken else ''
+        return account_ids, xsrftoken
+
+    def set_aws_provisioning_data(self, application_id, account_ids):
+        """Saves the provisioning data for okta aws application.
+
+        Args:
+            application_id: Okta application id
+            account_ids: the list of account ids which need to be added
+
+        Returns:
+            response: Response of the post method
+
+        """
+        existing_account_ids, xsrftoken = self.get_aws_provisioning_data(application_id)
+        if not all([existing_account_ids, xsrftoken]):
+            self._logger.error('Could not retrieve account_id list or xsrftoken from okta configuration')
+            return False
+        url = f'{self._admin_aws_application_url}/{application_id}/settings/user-mgmt'
+        headers = {
+            'referer': f'{self._admin_aws_application_url}/{application_id}/',
+            'x-okta-xsrftoken': xsrftoken,
+            'x-requested-with': 'XMLHttpRequest',
+            'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'origin': self._admin_host}
+        final_account_ids = f"{existing_account_ids},{','.join(account_ids)}"
+        response = self.session.post(url, data={'accountsIds': final_account_ids,
+                                                'pushNewAccount': 'true'}, headers=headers)
+        if not response.ok:
+            self._logger.error('Error posting, response: %s', response.text)
+        return response.ok
+
+    def push_group(self,  # pylint: disable=too-many-arguments
+                   group_id,
+                   group_name,
+                   directory_id,
+                   directory_label,
+                   status='ACTIVE',
+                   scope='DOMAIN LOCAL',
+                   group_type='SECURITY'):
+        """Pushes a group to an active directory through okta."""
+        xsrf = self._get_group_xsrf_token(group_id)
+        url = 'https://{admin_host}/api/internal/instance/{directory_id}/grouppush'.format(admin_host=self._admin_host,
+                                                                                           directory_id=directory_id)
+        referer = ('https://{admin_host}'
+                   '/admin/app/active_directory/instance/{directory_id}').format(admin_host=self._admin_host,
+                                                                                 directory_id=directory_id)
+        headers = {'Referer': referer,
+                   'X-Okta-XsrfToken': xsrf,
+                   'X-Requested-With': 'XMLHttpRequest',
+                   'Content-Type': 'application/json',
+                   'Host': self._admin_host,
+                   'Origin': 'https://{admin_host}'.format(admin_host=self._admin_host),
+                   'User-Agent': self._user_agent}
+        payload = {'status': status,
+                   'userGroupId': group_id,
+                   'groupPushAttributes': {'groupScope': scope,
+                                           'groupType': group_type,
+                                           'distinguishedName': 'ou=groups,ou=ad,dc={}'.format(
+                                               ',dc='.join(directory_label.split('.'))),
+                                           'samAccountName': group_name}}
+        self._logger.debug('Pushing group to url %s with payload %s', url, payload)
+        response = self.session.post(url, data=json.dumps(payload), headers=headers)
+        if not response.ok:
+            self._logger.error('Error posting, response: %s', response.text)
+        return response.ok
+
+    def _get_working_set_id(self, group_id):
+        xsrf = self._get_group_xsrf_token(group_id)
+        url = 'https://{admin_host}/admin/group/{group_id}/workingSetApps'.format(admin_host=self._admin_host,
+                                                                                  group_id=group_id)
+        referer = 'https://{admin_host}/admin/group/{group_id}'.format(admin_host=self._admin_host, group_id=group_id)
+        headers = {'Referer': referer,
+                   'X-Okta-XsrfToken': xsrf,
+                   'X-Requested-With': 'XMLHttpRequest',
+                   'Content-Type': 'application/json',
+                   'Host': self._admin_host,
+                   'Origin': 'https://{admin_host}'.format(admin_host=self._admin_host),
+                   'User-Agent': self._user_agent}
+        response = self.session.post(url, data=json.dumps({}), headers=headers)
+        try:
+            data = json.loads(response.text.split(';')[1])
+        except (ValueError, TypeError, AttributeError):
+            raise ResponseError('Can not retrieve data for working set id, '
+                                'invalid response received, {}'.format(response.text))
+        working_set_id = data.get('workingSetId')
+        if not working_set_id:
+            raise ResponseError('Unable to get the working set id, response received was {}'.format(response.text))
+        return working_set_id
+
+    def push_users(self, group_id, directory_id, directory_label):
+        """Pushes users to an active directory."""
+        working_set_id = self._get_working_set_id(group_id)
+        xsrf = self._get_group_xsrf_token(group_id)
+        url = 'https://{admin_host}/admin/group/{group_id}/submitApps'.format(admin_host=self._admin_host,
+                                                                              group_id=group_id)
+        referer = ('https://{admin_host}/admin/group/{group_id}/'
+                   'workingSetApps/{working_set_id}/directories').format(admin_host=self._admin_host,
+                                                                         group_id=group_id,
+                                                                         working_set_id=working_set_id)
+        headers = {'Referer': referer,
+                   'X-Okta-XsrfToken': xsrf,
+                   'X-Requested-With': 'XMLHttpRequest',
+                   'Content-Type': 'application/json',
+                   'Host': self._admin_host,
+                   'Origin': 'https://{admin_host}'.format(admin_host=self._admin_host),
+                   'User-Agent': self._user_agent}
+        payload = {'assignments': {directory_id: {'extensibleProfile[adCountryCode]': '',
+                                                  'extensibleProfile[co]': '',
+                                                  'extensibleProfile[description]': '',
+                                                  'extensibleProfile[division]': '',
+                                                  'extensibleProfile[facsimileTelephoneNumber]': '',
+                                                  'extensibleProfile[honorificPrefix]': '',
+                                                  'extensibleProfile[honorificSuffix]': '',
+                                                  'extensibleProfile[preferredLanguage]': '',
+                                                  'organizationalUnit':
+                                                      'ou=users,ou=ad,dc={}'.format(
+                                                          ',dc='.join(directory_label.split('.'))),
+                                                  'workingSetId': {working_set_id: None},
+                                                  'appInstanceIdsToRemove': {}}}}
+        self._logger.debug('Pushing users to url %s with payload %s', url, payload)
+        response = self.session.post(url, data=json.dumps(payload), headers=headers)
+        if not response.ok:
+            self._logger.error('Error posting, response: %s', response.text)
+        return response.ok
 
     def user_exists(self, login):
         url = f'https://{self._admin_host}/api/internal/people?search={login}'
