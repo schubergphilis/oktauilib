@@ -10,4 +10,5 @@ Development Lead
 Contributors
 ------------
 
-None yet. Why not be the first?
+* Sayantan Khanra <skhanra@schubergphilis.com>
+* Dario Tišlar <dtislar@schubergphilis.com>
