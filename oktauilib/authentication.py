@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # File: authentication.py
 #
-# Copyright 2020 Dario Tislar
+# Copyright 2020 Costas Tyfoxylos
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 #  of this software and associated documentation files (the "Software"), to
@@ -38,13 +38,12 @@ from copy import copy
 from time import sleep
 from requests import (Session,
                       ConnectionError)
-from oktauilib.oktauilibexceptions import (ResponseError,
-                                           InvalidCredentials,
-                                           PushNotConfigured,
-                                           PushRejected,
-                                           PasswordExpired,
-                                           PushTimeout)
-
+from oktauilibexceptions import (ResponseError,
+                                 InvalidCredentials,
+                                 PushRejected,
+                                 PasswordExpired,
+                                 PushTimeout)
+                                 
 __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
 __docformat__ = '''google'''
 __date__ = '''10-11-2020'''
@@ -78,18 +77,18 @@ class CredentialAuthenticator:
         self._logger.debug('Setting the cookie in the sessions.')
         session = self._set_state_cookie(session, push_response.state_token)
         factor = push_response.get_first_push_factor()
-        if not factor:
-            raise PushNotConfigured(push_response.user.login)
-        self._logger.debug('Requesting a push challenge from the user')
-        session, push_response = self._push_challenge(session, factor, push_response.state_token)
-        self._logger.debug('Authenticating after successful push response.')
-        session = self._authenticate_after_push(session, push_response)
+        if factor:
+            self._logger.debug('Requesting a push challenge from the user')
+            session, push_response = self._push_challenge(session, factor, push_response.state_token)
+            self._logger.debug('Authenticating after successful push response.')
+        session = self._authenticate_after_auth(session, push_response.session_token)
+
         return session
 
-    def _authenticate_after_push(self, session, push_response):
+    def _authenticate_after_auth(self, session, token):
         url = 'https://{host}/login/sessionCookieRedirect'.format(host=self._host)
         params = {'checkAccountSetupComplete': True,
-                  'token': push_response.session_token,
+                  'token': token,
                   'redirectUrl': 'https://{host}/user/notifications'.format(host=self._host)}
         headers = copy(session.headers)
         headers.update({'Referer': 'https://{host}/signin/verify/okta/push'.format(host=self._host),
@@ -105,6 +104,9 @@ class CredentialAuthenticator:
         # saasure
         url = response.headers.get('location')
         response = self._handle_redirect(session, url, headers)
+        # it ends here if user is not admin
+        if response.status_code == 200:
+            return session
 
         # oidc-entry
         url = response.headers.get('location')
@@ -267,7 +269,7 @@ class PushResponse:
     @property
     def factors(self):
         """Exposing attribute."""
-        return [Factor(data) for data in self._data.get('_embedded', {}).get('factors')]
+        return [Factor(data) for data in self._data.get('_embedded', {}).get('factors', [])]
 
     def get_first_push_factor(self):
         """Exposing attribute."""
