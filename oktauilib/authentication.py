@@ -38,12 +38,13 @@ from copy import copy
 from time import sleep
 from requests import (Session,
                       ConnectionError)
-from oktauilibexceptions import (ResponseError,
-                                 InvalidCredentials,
-                                 PushRejected,
-                                 PasswordExpired,
-                                 PushTimeout)
-                                 
+from oktauilib.oktauilibexceptions import (ResponseError,
+                                           InvalidCredentials,
+                                           PushRejected,
+                                           PushNotConfigured,
+                                           PasswordExpired,
+                                           PushTimeout)
+
 __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
 __docformat__ = '''google'''
 __date__ = '''10-11-2020'''
@@ -150,6 +151,9 @@ class CredentialAuthenticator:
 
     def _push_challenge(self, session, factor, state_token):
         url = factor.verify_link
+        if not url:
+            self._logger.error('Second factor verify_link missing.')
+            raise PushNotConfigured('User has PUSH enabled, but not configured.')
         params = {'autoPush': True,
                   'rememberDevice': True}
         headers = copy(session.headers)

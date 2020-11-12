@@ -4,7 +4,6 @@ verify_ssl = true
 name = "pypi"
 
 [dev-packages]
-
 # Documenting
 sphinx = "~=2.1.2"
 sphinx-rtd-theme = "~=0.4.3"
@@ -22,3 +21,4 @@ emoji = "~=0.5.3"
 toml = "~=0.10.0"
 
 [packages]
+bs4 = "*"
