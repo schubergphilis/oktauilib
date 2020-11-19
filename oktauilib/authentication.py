@@ -64,7 +64,7 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
         self._logger = logging.getLogger(__name__)
         self._host = host
         self._user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:82.0) Gecko/20100101 Firefox/82.0'
-        self._admin_host = self._get_admin_host(host)
+        self._admin_host = self.get_admin_host(host)
         self._base_url = 'https://{host}'.format(host=host)
         self.session = self._get_authenticated_session(username, password)
 
@@ -112,7 +112,7 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
         # oidc-entry
         url = response.headers.get('location')
         headers.update({'Referer': 'https://{host}'.format(host=self._host),
-                        'Host': self._get_admin_host(self._host)})
+                        'Host': self.get_admin_host(self._host)})
         response = self._handle_redirect(session, url, headers)
 
         # authorize
@@ -123,13 +123,13 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
 
         # callback
         url = response.headers.get('location')
-        headers.update({'Host': self._get_admin_host(self._host)})
+        headers.update({'Host': self.get_admin_host(self._host)})
         headers.pop('Referer', None)
         response = self._handle_redirect(session, url, headers=headers)
 
         # final redirect to update session
         url = response.headers.get('location')
-        headers.update({'Host': self._get_admin_host(self._host)})
+        headers.update({'Host': self.get_admin_host(self._host)})
         self._handle_redirect(session, url, headers=headers)
 
         return session
@@ -224,7 +224,7 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
         return session, push_response
 
     @staticmethod
-    def _get_admin_host(host):
+    def get_admin_host(host):
         client, server, suffix = host.split('.')
         return '.'.join([client + '-admin', server, suffix])
 

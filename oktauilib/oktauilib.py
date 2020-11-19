@@ -33,13 +33,13 @@ Main code for oktauilib.
 
 import json
 import logging
-import getpass
 
-from dataclasses import dataclass
 from bs4 import BeautifulSoup as Bfs
+
+from oktauilib.authentication import CredentialAuthenticator
 from oktauilib.oktauilibexceptions import (ResponseError,
                                            AuthenticationExpired)
-from oktauilib.authentication import CredentialAuthenticator
+from .helpers import *
 
 __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
 __docformat__ = '''google'''
@@ -57,159 +57,21 @@ LOGGER.addHandler(logging.NullHandler())
 AWS_APPLICATION_URL_COMPONENT = 'admin/app/amazon_aws/instance/'
 
 
-@dataclass
-class OktaUserType:
-    """Models an Okta User type."""
+# TODO drop the usage of format methods and use fstring were possible
 
-    id: str  # pylint: disable=invalid-name
-    display_name: str
-    name: str
-    description: str
-    schemas: list
-    is_default: bool
-
-    def __init__(self, data):
-        self.id = data.get('id')
-        self.display_name = data.get('displayName')
-        self.name = data.get('name')
-        self.description = data.get('description')
-        self.schemas = data.get('schemas')
-        self.is_default = data.get('isDefault')
-
-
-class OktaUser:  # pylint: disable=too-few-public-methods
-    """Models an Okta user based on input data."""
-
-    def __new__(cls, data):
-        if data.get('profile'):
-            return OktaUserActivate(data)
-        return OktaUserSearch(data)
-
-
-@dataclass
-class OktaUserSearch:
-    """Models an Okta User from search request."""
-
-    id: str  # pylint: disable=invalid-name
-    first_name: str
-    last_name: str
-    login: str
-    email: str
-    status: str
-    status_code: str
-
-    def __init__(self, data):
-        self.id = data.get('id')
-        self.first_name = data.get('firstName')
-        self.last_name = data.get('lastName')
-        self.login = data.get('login')
-        self.email = data.get('email')
-        self.status = data.get('status')
-        self.status_code = data.get('statusCode')
-
-
-@dataclass
-class OktaUserActivate:
-    """Models an Okta User from activate request."""
-
-    id: str  # pylint: disable=invalid-name
-    first_name: str
-    last_name: str
-    login: str
-    email: str
-    status: str
-    status_code: str
-
-    def __init__(self, data):
-        self.id = data.get('id')
-        self.first_name = data.get('profile').get('firstName')
-        self.last_name = data.get('profile').get('lastName')
-        self.login = data.get('profile').get('login')
-        self.email = data.get('profile').get('email')
-        self.status = data.get('status')
-        self.status_code = data.get('status')
-
-
-@dataclass
-class UsersDataStructure:
-    """Models an Active Directory User Search Result Data."""
-
-    user_id: str
-    unknown1: bool
-    unknown2: str
-    unknown3: bool
-    user_data: dict
-    assignments: list
-    unknown4: bool
-
-
-@dataclass
-class ADUserAssignment:
-    """Models an Active Directory User Assignment."""
-
-    # pylint: disable=too-many-instance-attributes
-    # Eight is reasonable in this case.
-
-    action: str
-    match_type: str
-    user_id: str
-    first_name: str
-    last_name: str
-    login: str
-    email: str
-    current: bool
-
-    def __init__(self, data):
-        self.action = data.get('action')
-        self.match_type = data.get('matchType')
-        self.user_id = data.get('userId')
-        self.first_name = data.get('firstName')
-        self.last_name = data.get('lastName')
-        self.login = data.get('login')
-        self.email = data.get('email')
-        self.current = data.get('current')
-
-
-@dataclass
-class ADUser:
-    """Models Active Directory User."""
-
-    id: str  # pylint: disable=invalid-name
-    first_name: str
-    last_name: str
-    user_name: str
-    email: str
-    assignments: list
-
-    def __init__(self, data):
-        self.id = data.user_id
-        self.first_name = data.user_data.get('firstName')
-        self.last_name = data.user_data.get('lastName')
-        self.user_name = data.user_data.get('userName')
-        self.email = data.user_data.get('email')
-        self.assignments = [ADUserAssignment(assignment) for assignment in data.assignments]
-
+# TODO check out all urls visited and make sure they are referenced in a single place
 
 class OktaUI:
     """Object authenticating with okta admin backend through push mechanism."""
 
     def __init__(self, host, username, password=None):
-        logger_name = u'{base}.{suffix}'.format(base=LOGGER_BASENAME,
-                                                suffix=self.__class__.__name__)
-        if not password:
-            password = getpass.getpass(prompt=f'Enter password for {username}: ')
-        self._logger = logging.getLogger(logger_name)
+        self._logger = logging.getLogger(f'{LOGGER_BASENAME}.{self.__class__.__name__}')
         self._host = host
         self._user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0'
-        self._admin_host = self._get_admin_host(host)
+        self._admin_host = CredentialAuthenticator().get_admin_host(host)
         self._base_url = f'https://{host}'
         self.session = self._authenticate_session(self._host, username, password)
         self._admin_aws_application_url = f'https://{self._admin_host}/{AWS_APPLICATION_URL_COMPONENT}'
-
-    @staticmethod
-    def _get_admin_host(host):
-        client, server, suffix = host.split('.')
-        return '.'.join([client + '-admin', server, suffix])
 
     @staticmethod
     def _authenticate_session(host, username, password):
@@ -240,6 +102,8 @@ class OktaUI:
                                                                          group_id=group_id)
         group_response = self.session.get(group_url, headers=group_headers)
         return self._parse_xsrf_token(group_response)
+
+    # TODO check if methods work with a simple user account and if not, blow up before returning non admin session
 
     @property
     def directories(self):
@@ -665,12 +529,11 @@ class ActiveDirectory:
                 'assignedId': '',
                 'manualAssignUser': False}
         # pylint: disable=protected-access
-        url = f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/users/{ad_user.id}/action'
-        # pylint: disable=protected-access
-        response = self.okta.session.post(url, data=data, headers=self.okta._request_headers)
+        url = f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/users/{ad_user.id}/action'  # pylint: disable=protected-access
+        response = self.okta.session.post(url, data=data, headers=self.okta._request_headers)  # pylint: disable=protected-access
         if not response.ok:
             # pylint: disable=protected-access
-            self.okta._logger.error(f'Can\'t set {assignment_action} assignment for {ad_user.user_name}')
+            self.okta._logger.error(f"Can't set {assignment_action} assignment for {ad_user.user_name}")
             self.okta._logger.error(response.text)  # pylint: disable=protected-access
             return False
         return True
