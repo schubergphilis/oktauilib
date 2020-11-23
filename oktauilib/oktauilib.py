@@ -642,8 +642,13 @@ class ActiveDirectory:
         url = f'https://{self.okta._admin_host}/admin/user/import/active_directory/{self.id}/start'
         data = {'_xsrfToken': self.xsrf_token,
                 'fullImport': 'false' if partial else 'true'}
+        headers = self.okta._request_headers
+        headers.update({'Referer': f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/',
+                        'Host': self.okta._admin_host,
+                        'Origin': f'https://{self.okta._admin_host}',
+                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'})
         # pylint: disable=protected-access
-        response = self.okta.session.post(url, data=data, headers=self.okta._request_headers)
+        response = self.okta.session.post(url, data=data, headers=headers)
         if not response.ok:
             self.okta._logger.error(response.text)  # pylint: disable=protected-access
             return None
@@ -660,14 +665,27 @@ class ActiveDirectory:
         Returns: Bool
 
         """
+        assignment = next((assignment for assignment in ad_user.assignments if assignment.action == assignment_action),
+                          None)
+        if not assignment:
+            self.okta._logger.error(f'Assignment {assignment_action} not found for user {ad_user.user_name}')
+            return False
+        if assignment.current:
+            self.okta._logger.debug(f'Assignment {assignment_action} already set for user {ad_user.user_name}')
+            return True
         data = {'_xsrfToken': self.xsrf_token,
                 'action': assignment_action,
-                'assignedId': '',
+                'assignedId': assignment.user_id if assignment.user_id else '',
                 'manualAssignUser': False}
         # pylint: disable=protected-access
         url = f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/users/{ad_user.id}/action'
+        headers = self.okta._request_headers
+        headers.update({'Referer': f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/',
+                        'Host': self.okta._admin_host,
+                        'Origin': f'https://{self.okta._admin_host}',
+                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'})
         # pylint: disable=protected-access
-        response = self.okta.session.post(url, data=data, headers=self.okta._request_headers)
+        response = self.okta.session.post(url, data=data, headers=headers)
         if not response.ok:
             # pylint: disable=protected-access
             self.okta._logger.error(f'Can\'t set {assignment_action} assignment for {ad_user.user_name}')
@@ -691,8 +709,13 @@ class ActiveDirectory:
                 'enableAutoactivation': enable_auto_activation}
         # pylint: disable=protected-access
         url = f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/users/confirm'
+        headers = self.okta._request_headers
+        headers.update({'Referer': f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/',
+                        'Host': self.okta._admin_host,
+                        'Origin': f'https://{self.okta._admin_host}',
+                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'})
         # pylint: disable=protected-access
-        response = self.okta.session.post(url, data=data, headers=self.okta._request_headers)
+        response = self.okta.session.post(url, data=data, headers=headers)
         if not response.ok:
             self.okta._logger.error(response.text)  # pylint: disable=protected-access
             return False
