@@ -71,3 +71,7 @@ class PushRejected(Exception):
 
 class PasswordExpired(Exception):
     """Password Expired."""
+
+
+class InsufficientPermissions(Exception):
+    """User doesn't have sufficient right to access admin dashboard."""

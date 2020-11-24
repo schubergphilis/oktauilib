@@ -43,7 +43,8 @@ from oktauilib.oktauilibexceptions import (ResponseError,
                                            PushRejected,
                                            PushNotConfigured,
                                            PasswordExpired,
-                                           PushTimeout)
+                                           PushTimeout,
+                                           InsufficientPermissions)
 
 __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
 __docformat__ = '''google'''
@@ -64,8 +65,9 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
         self._logger = logging.getLogger(__name__)
         self._host = host
         self._user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:82.0) Gecko/20100101 Firefox/82.0'
-        self._admin_host = self._get_admin_host(host)
-        self._base_url = 'https://{host}'.format(host=host)
+        self._admin_host = self.get_admin_host(host)
+        self._base_url = f'https://{host}'
+        self._signin_verify = f'https://{self._host}/signin/verify/okta/push'
         self.session = self._get_authenticated_session(username, password)
 
     def _get_authenticated_session(self, username, password):
@@ -87,49 +89,50 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
         return session
 
     def _authenticate_after_auth(self, session, token):
-        url = 'https://{host}/login/sessionCookieRedirect'.format(host=self._host)
+        url = f'https://{self._host}/login/sessionCookieRedirect'
         params = {'checkAccountSetupComplete': True,
                   'token': token,
-                  'redirectUrl': 'https://{host}/user/notifications'.format(host=self._host)}
+                  'redirectUrl': f'https://{self._host}/user/notifications'}
         headers = copy(session.headers)
-        headers.update({'Referer': 'https://{host}/signin/verify/okta/push'.format(host=self._host),
+        headers.update({'Referer': f'{self._signin_verify}',
                         'Host': self._host})
 
         response = self._handle_redirect(session, url, headers, params)
         # notifications
         url = response.headers.get('location')
-        headers.update({'Referer': 'https://{host}/signin/verify/okta/push'.format(host=self._host),
+        headers.update({'Referer': f'{self._signin_verify}',
                         'Host': self._host})
         response = self._handle_redirect(session, url, headers)
+
+        # it ends here if user is not admin
+        if response.status_code == 200:
+            raise InsufficientPermissions('User is missing administrator permissions.')
 
         # saasure
         url = response.headers.get('location')
         response = self._handle_redirect(session, url, headers)
-        # it ends here if user is not admin
-        if response.status_code == 200:
-            return session
 
         # oidc-entry
         url = response.headers.get('location')
-        headers.update({'Referer': 'https://{host}'.format(host=self._host),
-                        'Host': self._get_admin_host(self._host)})
+        headers.update({'Referer': f'https://{self._host}',
+                        'Host': self.get_admin_host(self._host)})
         response = self._handle_redirect(session, url, headers)
 
         # authorize
         url = response.headers.get('location')
-        headers.update({'Referer': 'https://{host}'.format(host=self._host),
+        headers.update({'Referer': f'https://{self._host}',
                         'Host': self._host})
         response = self._handle_redirect(session, url, headers=headers)
 
         # callback
         url = response.headers.get('location')
-        headers.update({'Host': self._get_admin_host(self._host)})
+        headers.update({'Host': self.get_admin_host(self._host)})
         headers.pop('Referer', None)
         response = self._handle_redirect(session, url, headers=headers)
 
         # final redirect to update session
         url = response.headers.get('location')
-        headers.update({'Host': self._get_admin_host(self._host)})
+        headers.update({'Host': self.get_admin_host(self._host)})
         self._handle_redirect(session, url, headers=headers)
 
         return session
@@ -161,7 +164,7 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
                         'Host': self._host,
                         'Content-Type': 'application/json',
                         'X-Requested-With': 'XMLHttpRequest',
-                        'Referer': 'https://{host}/signin/verify/okta/push'.format(host=self._host)})
+                        'Referer': f'{self._signin_verify}'})
         timer = 600
         self._logger.info('Sending push challenge to the user...')
         while timer:
@@ -192,15 +195,15 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
         return session, push_response
 
     def _accept_initial_cookie(self, session):
-        url = '{host}/login/default'.format(host=self._base_url)
+        url = f'{self._base_url}/login/default'
         response = session.get(url)
         if not response.ok:
             self._logger.error(response.text)
-            raise ResponseError('Can\'t accept initial cookie')
+            raise ResponseError("Can't accept initial cookie")
         return session
 
     def _get_authentication_challenge(self, session, username, password):
-        url = '{host}/api/v1/authn'.format(host=self._base_url)
+        url = f'{self._base_url}/api/v1/authn'
         payload = {'options': {'warnBeforePasswordExpired': True,
                                'multiOptionalFactorEnroll': True},
                    'username': username,
@@ -214,17 +217,27 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
         try:
             push_response = PushResponse(response.json())
         except ValueError:
-            raise ResponseError('Unexpected response received {}'.format(response.text))
+            raise ResponseError(f'Unexpected response received {response.text}')
         error = push_response.error_summary
         if error == 'Authentication failed':  # pylint: disable=no-else-raise
             raise InvalidCredentials('invalid credentials')
         elif error:
-            raise ResponseError('Unknown service error {}'.format(error))
+            raise ResponseError(f'Unknown service error {error}')
         self._logger.info('Successfully authenticated user!')
         return session, push_response
 
     @staticmethod
-    def _get_admin_host(host):
+    def get_admin_host(host):
+        """
+        Returns admin version of host url.
+
+        Args:
+            host: Okta host
+
+        Returns:
+            string of admin url
+
+        """
         client, server, suffix = host.split('.')
         return '.'.join([client + '-admin', server, suffix])
 

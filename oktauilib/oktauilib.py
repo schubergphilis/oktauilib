@@ -33,13 +33,15 @@ Main code for oktauilib.
 
 import json
 import logging
-import getpass
 
-from dataclasses import dataclass
 from bs4 import BeautifulSoup as Bfs
 from oktauilib.oktauilibexceptions import (ResponseError,
                                            AuthenticationExpired)
 from oktauilib.authentication import CredentialAuthenticator
+from .helpers import (ADUser,
+                      OktaUser,
+                      OktaUserType,
+                      UsersDataStructure)
 
 __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
 __docformat__ = '''google'''
@@ -57,159 +59,22 @@ LOGGER.addHandler(logging.NullHandler())
 AWS_APPLICATION_URL_COMPONENT = 'admin/app/amazon_aws/instance/'
 
 
-@dataclass
-class OktaUserType:
-    """Models an Okta User type."""
-
-    id: str  # pylint: disable=invalid-name
-    display_name: str
-    name: str
-    description: str
-    schemas: list
-    is_default: bool
-
-    def __init__(self, data):
-        self.id = data.get('id')
-        self.display_name = data.get('displayName')
-        self.name = data.get('name')
-        self.description = data.get('description')
-        self.schemas = data.get('schemas')
-        self.is_default = data.get('isDefault')
-
-
-class OktaUser:  # pylint: disable=too-few-public-methods
-    """Models an Okta user based on input data."""
-
-    def __new__(cls, data):
-        if data.get('profile'):
-            return OktaUserActivate(data)
-        return OktaUserSearch(data)
-
-
-@dataclass
-class OktaUserSearch:
-    """Models an Okta User from search request."""
-
-    id: str  # pylint: disable=invalid-name
-    first_name: str
-    last_name: str
-    login: str
-    email: str
-    status: str
-    status_code: str
-
-    def __init__(self, data):
-        self.id = data.get('id')
-        self.first_name = data.get('firstName')
-        self.last_name = data.get('lastName')
-        self.login = data.get('login')
-        self.email = data.get('email')
-        self.status = data.get('status')
-        self.status_code = data.get('statusCode')
-
-
-@dataclass
-class OktaUserActivate:
-    """Models an Okta User from activate request."""
-
-    id: str  # pylint: disable=invalid-name
-    first_name: str
-    last_name: str
-    login: str
-    email: str
-    status: str
-    status_code: str
-
-    def __init__(self, data):
-        self.id = data.get('id')
-        self.first_name = data.get('profile').get('firstName')
-        self.last_name = data.get('profile').get('lastName')
-        self.login = data.get('profile').get('login')
-        self.email = data.get('profile').get('email')
-        self.status = data.get('status')
-        self.status_code = data.get('status')
-
-
-@dataclass
-class UsersDataStructure:
-    """Models an Active Directory User Search Result Data."""
-
-    user_id: str
-    unknown1: bool
-    unknown2: str
-    unknown3: bool
-    user_data: dict
-    assignments: list
-    unknown4: bool
-
-
-@dataclass
-class ADUserAssignment:
-    """Models an Active Directory User Assignment."""
-
-    # pylint: disable=too-many-instance-attributes
-    # Eight is reasonable in this case.
-
-    action: str
-    match_type: str
-    user_id: str
-    first_name: str
-    last_name: str
-    login: str
-    email: str
-    current: bool
-
-    def __init__(self, data):
-        self.action = data.get('action')
-        self.match_type = data.get('matchType')
-        self.user_id = data.get('userId')
-        self.first_name = data.get('firstName')
-        self.last_name = data.get('lastName')
-        self.login = data.get('login')
-        self.email = data.get('email')
-        self.current = data.get('current')
-
-
-@dataclass
-class ADUser:
-    """Models Active Directory User."""
-
-    id: str  # pylint: disable=invalid-name
-    first_name: str
-    last_name: str
-    user_name: str
-    email: str
-    assignments: list
-
-    def __init__(self, data):
-        self.id = data.user_id
-        self.first_name = data.user_data.get('firstName')
-        self.last_name = data.user_data.get('lastName')
-        self.user_name = data.user_data.get('userName')
-        self.email = data.user_data.get('email')
-        self.assignments = [ADUserAssignment(assignment) for assignment in data.assignments]
-
-
-class OktaUI:
+class OktaUI:  # pylint: disable=too-many-instance-attributes
     """Object authenticating with okta admin backend through push mechanism."""
 
-    def __init__(self, host, username, password=None):
-        logger_name = u'{base}.{suffix}'.format(base=LOGGER_BASENAME,
-                                                suffix=self.__class__.__name__)
-        if not password:
-            password = getpass.getpass(prompt=f'Enter password for {username}: ')
-        self._logger = logging.getLogger(logger_name)
+    def __init__(self, host, username, password):
+        self._logger = logging.getLogger(f'{LOGGER_BASENAME}.{self.__class__.__name__}')
         self._host = host
         self._user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0'
-        self._admin_host = self._get_admin_host(host)
+        self._admin_host = CredentialAuthenticator.get_admin_host(host)
         self._base_url = f'https://{host}'
         self.session = self._authenticate_session(self._host, username, password)
         self._admin_aws_application_url = f'https://{self._admin_host}/{AWS_APPLICATION_URL_COMPONENT}'
-
-    @staticmethod
-    def _get_admin_host(host):
-        client, server, suffix = host.split('.')
-        return '.'.join([client + '-admin', server, suffix])
+        self._admin_group = f'https://{self._admin_host}/admin/group'
+        self._admin_user = f'https://{self._admin_host}/admin/user'
+        self._api_internal = f'https://{self._admin_host}/api/internal'
+        self._api_users = f'https://{self._admin_host}/api/v1/users'
+        self._active_directory_instance = f'https://{self._admin_host}/admin/app/active_directory/instance'
 
     @staticmethod
     def _authenticate_session(host, username, password):
@@ -223,7 +88,7 @@ class OktaUI:
         if not xsrf:
             if 'Sign In</title>' in response.text:
                 raise AuthenticationExpired()
-            raise ResponseError('Unable to get xsrf token from page, response was :{}'.format(response.text))
+            raise ResponseError(f'Unable to get xsrf token from page, response was :{response.text}')
         return xsrf.string.strip()
 
     def _get_xsrf_token(self):
@@ -234,10 +99,9 @@ class OktaUI:
 
     def _get_group_xsrf_token(self, group_id):
         group_headers = {'Host': self._admin_host,
-                         'Referer': 'https://{admin_host}/admin/groups'.format(admin_host=self._admin_host),
+                         'Referer': f'https://{self._admin_host}/admin/groups',
                          'User-Agent': self._user_agent}
-        group_url = 'https://{admin_host}/admin/group/{group_id}'.format(admin_host=self._admin_host,
-                                                                         group_id=group_id)
+        group_url = f'{self._admin_group}/{group_id}'
         group_response = self.session.get(group_url, headers=group_headers)
         return self._parse_xsrf_token(group_response)
 
@@ -327,24 +191,21 @@ class OktaUI:
                    group_type='SECURITY'):
         """Pushes a group to an active directory through okta."""
         xsrf = self._get_group_xsrf_token(group_id)
-        url = 'https://{admin_host}/api/internal/instance/{directory_id}/grouppush'.format(admin_host=self._admin_host,
-                                                                                           directory_id=directory_id)
-        referer = ('https://{admin_host}'
-                   '/admin/app/active_directory/instance/{directory_id}').format(admin_host=self._admin_host,
-                                                                                 directory_id=directory_id)
+        url = f'{self._api_internal}/instance/{directory_id}/grouppush'
+        referer = f'{self._active_directory_instance}/{directory_id}'
         headers = {'Referer': referer,
                    'X-Okta-XsrfToken': xsrf,
                    'X-Requested-With': 'XMLHttpRequest',
                    'Content-Type': 'application/json',
                    'Host': self._admin_host,
-                   'Origin': 'https://{admin_host}'.format(admin_host=self._admin_host),
+                   'Origin': f'https://{self._admin_host}',
                    'User-Agent': self._user_agent}
         payload = {'status': status,
                    'userGroupId': group_id,
                    'groupPushAttributes': {'groupScope': scope,
                                            'groupType': group_type,
-                                           'distinguishedName': 'ou=groups,ou=ad,dc={}'.format(
-                                               ',dc='.join(directory_label.split('.'))),
+                                           'distinguishedName':
+                                               f"ou=groups,ou=ad,dc={',dc='.join(directory_label.split('.'))}",
                                            'samAccountName': group_name}}
         self._logger.debug('Pushing group to url %s with payload %s', url, payload)
         response = self.session.post(url, data=json.dumps(payload), headers=headers)
@@ -355,43 +216,37 @@ class OktaUI:
     def _get_working_set_id(self, group_id):
         """Returns workingSetId from workingSetApps endpoint."""
         xsrf = self._get_group_xsrf_token(group_id)
-        url = 'https://{admin_host}/admin/group/{group_id}/workingSetApps'.format(admin_host=self._admin_host,
-                                                                                  group_id=group_id)
-        referer = 'https://{admin_host}/admin/group/{group_id}'.format(admin_host=self._admin_host, group_id=group_id)
+        url = f'{self._admin_group}/{group_id}/workingSetApps'
+        referer = f'{self._admin_group}/{group_id}'
         headers = {'Referer': referer,
                    'X-Okta-XsrfToken': xsrf,
                    'X-Requested-With': 'XMLHttpRequest',
                    'Content-Type': 'application/json',
                    'Host': self._admin_host,
-                   'Origin': 'https://{admin_host}'.format(admin_host=self._admin_host),
+                   'Origin': f'https://{self._admin_host}',
                    'User-Agent': self._user_agent}
         response = self.session.post(url, data=json.dumps({}), headers=headers)
         try:
             data = json.loads(response.text.split(';')[1])
         except (ValueError, TypeError, AttributeError):
-            raise ResponseError('Can not retrieve data for working set id, '
-                                'invalid response received, {}'.format(response.text))
+            raise ResponseError(f'Can not retrieve data for working set id, invalid response received, {response.text}')
         working_set_id = data.get('workingSetId')
         if not working_set_id:
-            raise ResponseError('Unable to get the working set id, response received was {}'.format(response.text))
+            raise ResponseError(f'Unable to get the working set id, response received was {response.text}')
         return working_set_id
 
     def push_users(self, group_id, directory_id, directory_label):
         """Pushes users to an active directory."""
         working_set_id = self._get_working_set_id(group_id)
         xsrf = self._get_group_xsrf_token(group_id)
-        url = 'https://{admin_host}/admin/group/{group_id}/submitApps'.format(admin_host=self._admin_host,
-                                                                              group_id=group_id)
-        referer = ('https://{admin_host}/admin/group/{group_id}/'
-                   'workingSetApps/{working_set_id}/directories').format(admin_host=self._admin_host,
-                                                                         group_id=group_id,
-                                                                         working_set_id=working_set_id)
+        url = f'{self._admin_group}/{group_id}/submitApps'
+        referer = f'{self._admin_group}/{group_id}/workingSetApps/{working_set_id}/directories'
         headers = {'Referer': referer,
                    'X-Okta-XsrfToken': xsrf,
                    'X-Requested-With': 'XMLHttpRequest',
                    'Content-Type': 'application/json',
                    'Host': self._admin_host,
-                   'Origin': 'https://{admin_host}'.format(admin_host=self._admin_host),
+                   'Origin': f'https://{self._admin_host}',
                    'User-Agent': self._user_agent}
         payload = {'assignments': {directory_id: {'extensibleProfile[adCountryCode]': '',
                                                   'extensibleProfile[co]': '',
@@ -402,8 +257,7 @@ class OktaUI:
                                                   'extensibleProfile[honorificSuffix]': '',
                                                   'extensibleProfile[preferredLanguage]': '',
                                                   'organizationalUnit':
-                                                      'ou=users,ou=ad,dc={}'.format(
-                                                          ',dc='.join(directory_label.split('.'))),
+                                                      f"ou=users,ou=ad,dc={',dc='.join(directory_label.split('.'))}",
                                                   'workingSetId': {working_set_id: None},
                                                   'appInstanceIdsToRemove': {}}}}
         self._logger.debug('Pushing users to url %s with payload %s', url, payload)
@@ -414,7 +268,7 @@ class OktaUI:
 
     def user_exists(self, login):
         """Checks if user exists."""
-        url = f'https://{self._admin_host}/api/internal/people?search={login}'
+        url = f'{self._api_internal}/people?search={login}'
         response = self.session.get(url)
         if not response.ok:
             self._logger.error(response.text)
@@ -426,7 +280,7 @@ class OktaUI:
 
     def user_types(self):
         """List of user types."""
-        url = f'https://{self._admin_host}/api/v1/user/types'
+        url = f'{self._api_users}/types'
         response = self.session.get(url)
         if not response.ok:
             self._logger.error(response.text)
@@ -441,7 +295,7 @@ class OktaUI:
             login: User login
 
         """
-        url = f'https://{self._admin_host}/api/internal/people?search={login}'
+        url = f'{self._api_internal}/people?search={login}'
         response = self.session.get(url)
         if not response.ok:
             self._logger.error(response.text)
@@ -466,7 +320,7 @@ class OktaUI:
 
         """
         if self.user_exists(login):
-            self._logger.error('Can\'t continue, user %s already exists', login)
+            self._logger.error("Can't continue, user %s already exists", login)
             return None
         # get default user type if not provided
         if not user_type or not isinstance(user_type, OktaUserType):
@@ -482,7 +336,7 @@ class OktaUI:
                                  'firstName': first_name,
                                  'lastName': last_name},
                      'credentials': {'password': {'value': password}}}
-        url = f'https://{self._admin_host}/api/v1/users?activate=true'
+        url = f'{self._api_users}?activate=true'
         response = self.session.post(url, json=temp_user, headers=self._request_headers)
         if not response.ok:
             self._logger.error('User %s not created', login)
@@ -509,7 +363,7 @@ class OktaUI:
         if user.status_code == 'INACTIVE':
             self._logger.info('User %s already deactivated, skipping!', login)
             return True
-        url = f'https://{self._admin_host}/admin/user/deactivate/{user.id}'
+        url = f'{self._admin_user}/deactivate/{user.id}'
         response = self.session.post(url, data=data, headers=self._request_headers)
         if not response.ok:
             self._logger.error(response.text)
@@ -534,10 +388,10 @@ class OktaUI:
         if user.status_code != 'INACTIVE':
             self._logger.error('User %s not deactivated, aborting delete', login)
             return False
-        url = f'https://{self._admin_host}/api/v1/users/{user.id}'
+        url = f'{self._api_users}/{user.id}'
         response = self.session.delete(url, headers=self._request_headers)
         if not response.ok:
-            self._logger.error('Can\'t delete user %s', login)
+            self._logger.error("Can't delete user %s", login)
             self._logger.error(response.text)
             return False
         self._logger.info('User %s deleted', user.login)
@@ -602,31 +456,29 @@ class ActiveDirectory:
         name = html_data.text.strip()
         return id_, name
 
-    def is_user_unassigned(self, login_name):
+    def is_user_unassigned(self, email):
         """Checks if user is unassigned."""
-        return bool(self.get_unassigned_user_by_username(login_name))
+        return bool(self.get_unassigned_user_by_email(email))
 
-    def get_unassigned_user_by_username(self, login_name):
+    def get_unassigned_user_by_email(self, email):
         """
         Gets unassigned user by username.
 
         Args:
-            login_name: login (email)
+            email: users email
 
         Returns: ADUser model.
 
         """
-        # pylint: disable=protected-access
-        url = f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/users/unassigned'
-        params = self._users_query_params(login_name)
-        # pylint: disable=protected-access
-        response = self.okta.session.get(url, params=params, headers=self.okta._request_headers)
+        url = f'{self.okta._active_directory_instance}/{self.id}/users/unassigned'  # pylint: disable=protected-access
+        params = self._users_query_params(email)
+        response = self.okta.session.get(url, params=params, headers=self.okta._request_headers)  # pylint: disable=protected-access
         if not response.ok:
             self.okta._logger.error(response.text)  # pylint: disable=protected-access
             return None
 
         data = [UsersDataStructure(*data) for data in self.okta.parse_response(response.text).get('aaData')]
-        return next((ADUser(user) for user in data if ADUser(user).user_name == login_name), None)
+        return next((ADUser(user) for user in data if ADUser(user).email == email), None)
 
     def import_users(self, partial=True):
         """
@@ -634,20 +486,17 @@ class ActiveDirectory:
 
         Args:
             partial: Bool if it should use partial import
-
         Returns: ImportJob object
 
         """
-        # pylint: disable=protected-access
-        url = f'https://{self.okta._admin_host}/admin/user/import/active_directory/{self.id}/start'
+        url = f'{self.okta._admin_user}/import/active_directory/{self.id}/start'  # pylint: disable=protected-access
         data = {'_xsrfToken': self.xsrf_token,
                 'fullImport': 'false' if partial else 'true'}
-        headers = self.okta._request_headers
-        headers.update({'Referer': f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/',
-                        'Host': self.okta._admin_host,
-                        'Origin': f'https://{self.okta._admin_host}',
+        headers = self.okta._request_headers  # pylint: disable=protected-access
+        headers.update({'Referer': f'{self.okta._active_directory_instance}/{self.id}/',  # pylint: disable=protected-access
+                        'Host': self.okta._admin_host,  # pylint: disable=protected-access
+                        'Origin': f'https://{self.okta._admin_host}',  # pylint: disable=protected-access
                         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'})
-        # pylint: disable=protected-access
         response = self.okta.session.post(url, data=data, headers=headers)
         if not response.ok:
             self.okta._logger.error(response.text)  # pylint: disable=protected-access
@@ -668,28 +517,27 @@ class ActiveDirectory:
         assignment = next((assignment for assignment in ad_user.assignments if assignment.action == assignment_action),
                           None)
         if not assignment:
-            self.okta._logger.error(f'Assignment {assignment_action} not found for user {ad_user.user_name}')
+            self.okta._logger.error(f'Assignment {assignment_action} not found for user {ad_user.user_name}')  # pylint: disable=protected-access
             return False
         if assignment.current:
-            self.okta._logger.debug(f'Assignment {assignment_action} already set for user {ad_user.user_name}')
+            self.okta._logger.debug(f'Assignment {assignment_action} already set for user {ad_user.user_name}')  # pylint: disable=protected-access
             return True
         data = {'_xsrfToken': self.xsrf_token,
                 'action': assignment_action,
                 'assignedId': assignment.user_id if assignment.user_id else '',
                 'manualAssignUser': False}
         # pylint: disable=protected-access
-        url = f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/users/{ad_user.id}/action'
+        url = f'{self.okta._active_directory_instance}/{self.id}/users/{ad_user.id}/action'
         headers = self.okta._request_headers
-        headers.update({'Referer': f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/',
+        headers.update({'Referer': f'{self.okta._active_directory_instance}/{self.id}/',
                         'Host': self.okta._admin_host,
                         'Origin': f'https://{self.okta._admin_host}',
                         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'})
-        # pylint: disable=protected-access
         response = self.okta.session.post(url, data=data, headers=headers)
         if not response.ok:
             # pylint: disable=protected-access
-            self.okta._logger.error(f'Can\'t set {assignment_action} assignment for {ad_user.user_name}')
-            self.okta._logger.error(response.text)  # pylint: disable=protected-access
+            self.okta._logger.error(f"Can't set {assignment_action} assignment for {ad_user.user_name}")
+            self.okta._logger.error(response.text)
             return False
         return True
 
@@ -708,13 +556,12 @@ class ActiveDirectory:
                 'confirmIds': ad_user.id,
                 'enableAutoactivation': enable_auto_activation}
         # pylint: disable=protected-access
-        url = f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/users/confirm'
+        url = f'{self.okta._active_directory_instance}/{self.id}/users/confirm'
         headers = self.okta._request_headers
-        headers.update({'Referer': f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/',
+        headers.update({'Referer': f'{self.okta._active_directory_instance}/{self.id}/',
                         'Host': self.okta._admin_host,
                         'Origin': f'https://{self.okta._admin_host}',
                         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'})
-        # pylint: disable=protected-access
         response = self.okta.session.post(url, data=data, headers=headers)
         if not response.ok:
             self.okta._logger.error(response.text)  # pylint: disable=protected-access
@@ -742,7 +589,7 @@ class ActiveDirectory:
     def _counters(self):
         """Returns counters from users/counts endpoint."""
         # pylint: disable=protected-access
-        url = f'https://{self.okta._admin_host}/admin/app/active_directory/instance/{self.id}/users/counts'
+        url = f'{self.okta._active_directory_instance}/{self.id}/users/counts'
         response = self.okta.session.get(url, headers=self.okta._request_headers)  # pylint: disable=protected-access
         if not response.ok:
             self.okta._logger.error(response.text)  # pylint: disable=protected-access
