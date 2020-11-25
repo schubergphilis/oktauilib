@@ -67,7 +67,7 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
         self._user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:82.0) Gecko/20100101 Firefox/82.0'
         self._admin_host = self.get_admin_host(host)
         self._base_url = f'https://{host}'
-        self._signin_verify = f'https://{self._host}/signin/verify/okta/push'
+        self._signin_verify = f'https://{self._host}/login/login.htm'
         self.session = self._get_authenticated_session(username, password)
 
     def _get_authenticated_session(self, username, password):
@@ -81,6 +81,7 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
         session = self._set_state_cookie(session, push_response.state_token)
         factor = push_response.get_first_push_factor()
         if factor:
+            self._signin_verify = f'https://{self._host}/signin/verify/okta/push'
             self._logger.debug('Requesting a push challenge from the user')
             session, push_response = self._push_challenge(session, factor, push_response.state_token)
             self._logger.debug('Authenticating after successful push response.')
@@ -108,9 +109,17 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
         if response.status_code == 200:
             raise InsufficientPermissions('User is missing administrator permissions.')
 
-        # saasure
         url = response.headers.get('location')
-        headers.update({'Referer': f'https://{self._host}/login/login.htm',
+        # if not saasure do teh admin
+        if 'saasure' not in url:
+            headers.update({'Referer': url,
+                            'Host': self._host})
+            url = f'https://{self._host}/home/admin-entry'
+            response = self._handle_redirect(session, url, headers)
+            url = response.headers.get('location')
+
+        # saasure
+        headers.update({'Referer': f'{self._signin_verify}',
                         'Host': self._host})
         response = self._handle_redirect(session, url, headers)
 
