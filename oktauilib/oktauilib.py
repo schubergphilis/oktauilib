@@ -64,6 +64,9 @@ class OktaUI:  # pylint: disable=too-many-instance-attributes
 
     def __init__(self, host, username, password):
         self._logger = logging.getLogger(f'{LOGGER_BASENAME}.{self.__class__.__name__}')
+        if not all([host, username, password]):
+            self._logger.error('Empty argument passed!')
+            raise ValueError('Empty argument passed!')
         self._host = host
         self._user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0'
         self._admin_host = CredentialAuthenticator.get_admin_host(host)
