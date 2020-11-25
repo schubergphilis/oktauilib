@@ -110,6 +110,8 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
 
         # saasure
         url = response.headers.get('location')
+        headers.update({'Referer': f'https://{self._host}/login/login.htm',
+                        'Host': self._host})
         response = self._handle_redirect(session, url, headers)
 
         # oidc-entry
