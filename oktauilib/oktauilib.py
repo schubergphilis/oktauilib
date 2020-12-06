@@ -481,7 +481,7 @@ class ActiveDirectory:
             return None
 
         data = [UsersDataStructure(*data) for data in self.okta.parse_response(response.text).get('aaData')]
-        return next((ADUser(user) for user in data if ADUser(user).email == email), None)
+        return next((ADUser(user) for user in data if ADUser(user).email.lower() == email.lower()), None)
 
     def import_users(self, partial=True):
         """
