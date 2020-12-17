@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # File: authentication.py
 #
-# Copyright 2020 Costas Tyfoxylos
+# Copyright 2020 Tyfoxylos Costas, Dario Tislar, Sayantan Khanra
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 #  of this software and associated documentation files (the "Software"), to
@@ -33,11 +33,12 @@ Authentication code.
 
 import json
 import logging
-
 from copy import copy
 from time import sleep
+
+import requests
 from requests import Session
-from requests import ConnectionError  # pylint: disable=redefined-builtin
+
 from oktauilib.oktauilibexceptions import (ResponseError,
                                            InvalidCredentials,
                                            PushRejected,
@@ -86,7 +87,6 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
             session, push_response = self._push_challenge(session, factor, push_response.state_token)
             self._logger.debug('Authenticating after successful push response.')
         session = self._authenticate_after_auth(session, push_response.session_token)
-
         return session
 
     def _authenticate_after_auth(self, session, token):
@@ -97,18 +97,14 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
         headers = copy(session.headers)
         headers.update({'Referer': f'{self._signin_verify}',
                         'Host': self._host})
-
         response = self._handle_redirect(session, url, headers, params)
-        # notifications
         url = response.headers.get('location')
         headers.update({'Referer': f'{self._signin_verify}',
                         'Host': self._host})
         response = self._handle_redirect(session, url, headers)
-
         # it ends here if user is not admin
         if response.status_code == 200:
             raise InsufficientPermissions('User is missing administrator permissions.')
-
         url = response.headers.get('location')
         # if not saasure do teh admin
         if 'saasure' not in url:
@@ -117,35 +113,29 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
             url = f'https://{self._host}/home/admin-entry'
             response = self._handle_redirect(session, url, headers)
             url = response.headers.get('location')
-
         # saasure
         headers.update({'Referer': f'{self._signin_verify}',
                         'Host': self._host})
         response = self._handle_redirect(session, url, headers)
-
         # oidc-entry
         url = response.headers.get('location')
         headers.update({'Referer': f'https://{self._host}',
                         'Host': self.get_admin_host(self._host)})
         response = self._handle_redirect(session, url, headers)
-
         # authorize
         url = response.headers.get('location')
         headers.update({'Referer': f'https://{self._host}',
                         'Host': self._host})
         response = self._handle_redirect(session, url, headers=headers)
-
         # callback
         url = response.headers.get('location')
         headers.update({'Host': self.get_admin_host(self._host)})
         headers.pop('Referer', None)
         response = self._handle_redirect(session, url, headers=headers)
-
         # final redirect to update session
         url = response.headers.get('location')
         headers.update({'Host': self.get_admin_host(self._host)})
         self._handle_redirect(session, url, headers=headers)
-
         return session
 
     def _handle_redirect(self, session, url, headers, params=None):
@@ -187,7 +177,7 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
                                         headers=headers,
                                         timeout=REQUEST_TIMEOUT)
                 push_response = PushResponse(response.json())
-            except ConnectionError:
+            except requests.ConnectionError:
                 pass
             if push_response.factor_result == 'REJECTED':
                 raise PushRejected('Push notification rejected')
@@ -250,7 +240,7 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
 
         """
         client, server, suffix = host.split('.')
-        return '.'.join([client + '-admin', server, suffix])
+        return '.'.join([f'{client}-admin', server, suffix])
 
 
 class PushResponse:

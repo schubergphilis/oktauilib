@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # File: oktauilib.py
 #
-# Copyright 2020 Costas Tyfoxylos
+# Copyright 2020 Tyfoxylos Costas, Dario Tislar, Sayantan Khanra
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 #  of this software and associated documentation files (the "Software"), to
@@ -38,10 +38,10 @@ from bs4 import BeautifulSoup as Bfs
 from oktauilib.oktauilibexceptions import (ResponseError,
                                            AuthenticationExpired)
 from oktauilib.authentication import CredentialAuthenticator
-from .helpers import (ADUser,
-                      OktaUser,
-                      OktaUserType,
-                      UsersDataStructure)
+from .models import (ADUser,
+                     OktaUser,
+                     OktaUserType,
+                     UsersDataStructure)
 
 __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
 __docformat__ = '''google'''
@@ -57,6 +57,7 @@ LOGGER_BASENAME = '''oktauilib'''
 LOGGER = logging.getLogger(LOGGER_BASENAME)
 LOGGER.addHandler(logging.NullHandler())
 AWS_APPLICATION_URL_COMPONENT = 'admin/app/amazon_aws/instance/'
+LOGIN_ERROR_TEXT = 'Sign In</title>'
 
 
 class OktaUI:  # pylint: disable=too-many-instance-attributes
@@ -64,20 +65,18 @@ class OktaUI:  # pylint: disable=too-many-instance-attributes
 
     def __init__(self, host, username, password):
         self._logger = logging.getLogger(f'{LOGGER_BASENAME}.{self.__class__.__name__}')
-        if not all([arg is not None for arg in [host, username, password]]):
-            self._logger.error('Empty argument passed!')
-            raise ValueError('Empty argument passed!')
         self._host = host
         self._user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0'
         self._admin_host = CredentialAuthenticator.get_admin_host(host)
+        self._admin_url = f'https://{self._admin_host}'
         self._base_url = f'https://{host}'
         self.session = self._authenticate_session(self._host, username, password)
-        self._admin_aws_application_url = f'https://{self._admin_host}/{AWS_APPLICATION_URL_COMPONENT}'
-        self._admin_group = f'https://{self._admin_host}/admin/group'
-        self._admin_user = f'https://{self._admin_host}/admin/user'
-        self._api_internal = f'https://{self._admin_host}/api/internal'
-        self._api_users = f'https://{self._admin_host}/api/v1/users'
-        self._active_directory_instance = f'https://{self._admin_host}/admin/app/active_directory/instance'
+        self._admin_aws_application_url = f'{self._admin_url}/{AWS_APPLICATION_URL_COMPONENT}'
+        self._admin_group = f'{self._admin_url}/admin/group'
+        self._admin_user = f'{self._admin_url}/admin/user'
+        self._api_internal = f'{self._admin_url}/api/internal'
+        self._api_users = f'{self._admin_url}/api/v1/users'
+        self._active_directory_instance = f'{self._admin_url}/admin/app/active_directory/instance'
 
     @staticmethod
     def _authenticate_session(host, username, password):
@@ -89,7 +88,7 @@ class OktaUI:  # pylint: disable=too-many-instance-attributes
         soup = Bfs(response.text, features='html.parser')
         xsrf = soup.find('span', id='_xsrfToken')
         if not xsrf:
-            if 'Sign In</title>' in response.text:
+            if LOGIN_ERROR_TEXT in response.text:
                 raise AuthenticationExpired()
             raise ResponseError(f'Unable to get xsrf token from page, response was :{response.text}')
         return xsrf.string.strip()
@@ -171,12 +170,11 @@ class OktaUI:  # pylint: disable=too-many-instance-attributes
             self._logger.error('Could not retrieve account_id list or xsrftoken from okta configuration')
             return False
         url = f'{self._admin_aws_application_url}/{application_id}/settings/user-mgmt'
-        headers = {
-            'referer': f'{self._admin_aws_application_url}/{application_id}/',
-            'x-okta-xsrftoken': xsrftoken,
-            'x-requested-with': 'XMLHttpRequest',
-            'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'origin': self._admin_host}
+        headers = {'referer': f'{self._admin_aws_application_url}/{application_id}/',
+                   'x-okta-xsrftoken': xsrftoken,
+                   'x-requested-with': 'XMLHttpRequest',
+                   'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                   'origin': self._admin_host}
         final_account_ids = f"{existing_account_ids},{','.join(account_ids)}"
         response = self.session.post(url, data={'accountsIds': final_account_ids,
                                                 'pushNewAccount': 'true'}, headers=headers)
@@ -303,12 +301,17 @@ class OktaUI:  # pylint: disable=too-many-instance-attributes
         if not response.ok:
             self._logger.error(response.text)
             return None
-        return next(
-            (OktaUser(user) for user in response.json().get('personList') if user.get('login') == login),
-            None)
+        return next((OktaUser(user)
+                     for user in response.json().get('personList')
+                     if user.get('login') == login),
+                    None)
 
-    def create_user(self, login, password,
-                    first_name='TempFirstName', last_name='TempLastName', user_type: OktaUserType = None):
+    def create_user(self,
+                    login,
+                    password,
+                    first_name='TempFirstName',
+                    last_name='TempLastName',
+                    user_type: OktaUserType = None):
         # pylint: disable=too-many-arguments
         """Returns OktaUser.
 
@@ -539,8 +542,8 @@ class ActiveDirectory:
         response = self.okta.session.post(url, data=data, headers=headers)
         if not response.ok:
             # pylint: disable=protected-access
-            self.okta._logger.error(f"Can't set {assignment_action} assignment for {ad_user.user_name}")
-            self.okta._logger.error(response.text)
+            self.okta._logger.error(f"Can't set {assignment_action} assignment for {ad_user.user_name}\n"
+                                    f"{response.text}")
             return False
         return True
 
@@ -618,7 +621,6 @@ class ImportJob:
         self.id = data.get('modelMap', {}).get('jobId')  # pylint: disable=invalid-name
         self._data = None
         self._update()
-        print(self._data.get('status'))
         self._is_running = True
 
     def _update(self):

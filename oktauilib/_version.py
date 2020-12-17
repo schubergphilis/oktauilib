@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # File: _version.py
 #
-# Copyright 2020 Dario Tislar
+# Copyright 2020 Tyfoxylos Costas, Dario Tislar, Sayantan Khanra
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 #  of this software and associated documentation files (the "Software"), to
