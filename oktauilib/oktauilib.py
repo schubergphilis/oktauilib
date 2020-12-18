@@ -509,7 +509,7 @@ class ActiveDirectory:
             return None
         return ImportJob(self.okta, self.okta.parse_response(response.text))
 
-    def set_current_user_assignment(self, ad_user: ADUser, assignment_action):
+    def set_current_user_assignment(self, ad_user, assignment_action):
         """
         Sets current user assignment to provided assignment action.
 
@@ -547,7 +547,7 @@ class ActiveDirectory:
             return False
         return True
 
-    def confirm_user_assignment(self, ad_user: ADUser, enable_auto_activation=True):
+    def confirm_user_assignment(self, ad_user, enable_auto_activation=True):
         """
         Confirms user assignment.
 
@@ -574,7 +574,7 @@ class ActiveDirectory:
             return False
         return True
 
-    def create_okta_user_for_ad_user(self, ad_user: ADUser):
+    def create_okta_user_for_ad_user(self, ad_user):
         """Creates new Okta user for AD user assignment.
 
         Args:
