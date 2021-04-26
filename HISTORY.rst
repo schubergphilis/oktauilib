@@ -13,3 +13,9 @@ History
 ------------------
 
 * initial release
+
+
+0.1.1 (26-04-2021)
+------------------
+
+* Bumped dependencies.
