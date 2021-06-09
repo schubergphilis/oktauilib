@@ -19,3 +19,9 @@ History
 ------------------
 
 * Bumped dependencies.
+
+
+0.2.0 (09-06-2021)
+------------------
+
+* Removed a deprecated call.
