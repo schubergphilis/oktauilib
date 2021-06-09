@@ -106,17 +106,13 @@ class CredentialAuthenticator:  # pylint: disable=too-few-public-methods
         if response.status_code == 200:
             raise InsufficientPermissions('User is missing administrator permissions.')
         url = response.headers.get('location')
-        # if not saasure do teh admin
+        # if not saasure do the admin
         if 'saasure' not in url:
             headers.update({'Referer': url,
                             'Host': self._host})
             url = f'https://{self._host}/home/admin-entry'
             response = self._handle_redirect(session, url, headers)
             url = response.headers.get('location')
-        # saasure
-        headers.update({'Referer': f'{self._signin_verify}',
-                        'Host': self._host})
-        response = self._handle_redirect(session, url, headers)
         # oidc-entry
         url = response.headers.get('location')
         headers.update({'Referer': f'https://{self._host}',
